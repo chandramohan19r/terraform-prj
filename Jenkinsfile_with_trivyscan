@@ -1,0 +1,60 @@
+pipeline {
+  agent any
+
+  environment {
+    TF_CREDS = credentials('aws-creds')
+    IMAGE_NAME = "chandramohan/devops-app"
+  }
+
+  stages {
+    stage('Checkout') {
+      steps {
+        git 'https://github.com/your-username/devops-infra.git'
+      }
+    }
+
+    stage('Terraform Init & Apply') {
+      steps {
+        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-creds']]) {
+          sh '''
+            cd terraform/
+            terraform init
+            terraform apply -auto-approve
+          '''
+        }
+      }
+    }
+
+    stage('Build Docker Image') {
+      steps {
+        sh 'docker build -t $IMAGE_NAME .'
+      }
+    }
+
+    stage('Trivy Security Scan') {
+      steps {
+        sh 'trivy image --severity HIGH,CRITICAL $IMAGE_NAME'
+      }
+    }
+
+    stage('Push to Docker Hub') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+          sh '''
+            echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
+            docker push $IMAGE_NAME
+          '''
+        }
+      }
+    }
+  }
+
+  post {
+    success {
+      echo "✅ Infrastructure provisioned and image pushed securely!"
+    }
+    failure {
+      echo "❌ Pipeline failed. Check logs for details."
+    }
+  }
+}
